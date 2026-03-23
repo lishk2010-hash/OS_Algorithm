@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>抢占式短作业优先调度（Preemptive SJF）</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+  background: linear-gradient(135deg,#f0f4ff,#f8fafc);
+  min-height: 100vh; padding: 32px;
+  display: flex; flex-direction: column; align-items: center; gap: 28px;
+}
+
+.header { text-align: center; }
+.header h1 { font-size: 26px; font-weight: 800; color: #1a2340; }
+.header h2 { font-size: 18px; font-weight: 600; color: #4b5563; margin-top: 8px; }
+
+.card {
+  background: #fff; border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+  padding: 28px 36px; width: 100%; max-width: 960px; overflow-x: auto;
+}
+.card-label { font-size: 15px; font-weight: 700; color: #6b7280; margin-bottom: 18px; letter-spacing: 1px; }
+
+/* Gantt */
+.gantt-bars     { position: relative; height: 72px; margin-left: 4px; }
+.gantt-ticks    { position: relative; height: 30px; margin-left: 4px; margin-top: 4px; }
+.gantt-arrivals { position: relative; height: 28px; margin-left: 4px; margin-top: 2px; }
+.gantt-baseline { position: absolute; top: 0; left: 0; height: 1px; background: #e2e8f0; }
+
+.bar {
+  position: absolute; top: 0; height: 64px;
+  border-radius: 8px; border: 2px solid;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; cursor: default; overflow: hidden;
+  transition: background .2s, transform .15s, box-shadow .15s;
+}
+.bar:hover { transform: translateY(-3px); }
+
+.tick { position: absolute; display: flex; flex-direction: column; align-items: center; }
+.tick-line { width: 1px; height: 7px; }
+.tick-num  { font-size: 15px; color: #64748b; }
+.tick-num.bold   { font-weight: 700; }
+.tick-num.red    { color: #f43f5e; font-weight: 800; }
+.tick-line.red   { background: #f43f5e !important; }
+.tick-line.gray  { background: #cbd5e1; }
+
+.arrival { position: absolute; display: flex; flex-direction: column; align-items: center; transform: translateX(-50%); }
+.arrival-line  { width: 2px; height: 8px; border-radius: 1px; }
+.arrival-label { font-size: 13px; font-weight: 600; white-space: nowrap; margin-top: 1px; }
+
+.preempt-line {
+  position: absolute; top: 0; width: 2px; height: 64px;
+  background: rgba(0,0,0,0.15); pointer-events: none; z-index: 20;
+}
+
+/* Notes */
+.note-row { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
+.note-red    { font-size: 14px; color: #f43f5e; font-weight: 600; }
+.note-yellow { font-size: 14px; color: #f59e0b; font-weight: 600; }
+
+/* Table */
+table { width: 100%; border-collapse: collapse; font-size: 17px; }
+thead tr { background: #f8fafc; }
+th {
+  padding: 10px; text-align: center; font-weight: 700;
+  color: #374151; border-bottom: 2px solid #e2e8f0;
+  font-size: 15px; white-space: nowrap;
+}
+td { padding: 10px; text-align: center; }
+.row-even { background: #fff; }
+.row-odd  { background: #fafafa; }
+tfoot tr  { border-top: 2px solid #e2e8f0; background: #f8fafc; }
+
+.job-badge {
+  font-weight: 800; padding: 2px 10px;
+  border-radius: 20px; border: 1px solid; display: inline-block;
+}
+
+/* Legend */
+.legend { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 15px; color: #4b5563; }
+.legend-dot { width: 13px; height: 13px; border-radius: 3px; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>抢占式短作业优先调度（SRTF）</h1>
+  <h2>Shortest Remaining Time First · Gantt Chart</h2>
+</div>
+
+<div class="card">
+  <div class="card-label">CPU 时间轴</div>
+  <div class="gantt-bars"     id="gantt-bars"></div>
+  <div class="gantt-ticks"    id="gantt-ticks"></div>
+  <div class="gantt-arrivals" id="gantt-arrivals"></div>
+  <div class="note-row">
+    <div style="width:20px;height:3px;background:#f43f5e;border-radius:2px;"></div>
+    <span class="note-red">红色刻度 = 抢占发生时刻</span>
+  </div>
+  <div class="note-row" style="margin-top:6px;">
+    <span>⚠</span>
+    <span class="note-yellow">剩余时间最短的进程优先执行，新进程到达时若剩余时间更短则立即抢占</span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-label">调度统计</div>
+  <table>
+    <thead><tr>
+      <th>进程</th><th>到达时间</th><th>运行时间</th><th>完成时间</th>
+      <th>等待时间</th><th>周转时间 T</th><th>带权周转时间 W</th>
+    </tr></thead>
+    <tbody id="stats-body"></tbody>
+    <tfoot><tr>
+      <td colspan="4" style="text-align:right;font-weight:700;color:#6b7280;font-size:14px;padding:10px;">平均值</td>
+      <td id="avg-wait" style="font-weight:800;color:#6366f1;padding:10px;"></td>
+      <td id="avg-ta"   style="font-weight:800;color:#10b981;padding:10px;"></td>
+      <td id="avg-wta"  style="font-weight:800;color:#f59e0b;padding:10px;"></td>
+    </tr></tfoot>
+  </table>
+</div>
+
+<div class="legend" id="legend"></div>
+
+<script>
+const SCALE = 32, TOTAL = 16;
+
+const COLORS = {
+  J1:{ bg:"#6366f1", light:"#eef2ff", border:"#4f46e5" },
+  J2:{ bg:"#10b981", light:"#ecfdf5", border:"#059669" },
+  J3:{ bg:"#f59e0b", light:"#fffbeb", border:"#d97706" },
+  J4:{ bg:"#ef4444", light:"#fef2f2", border:"#dc2626" },
+};
+
+const JOBS = [
+  { id:"J1", label:"J₁", arrive:0, burst:7 },
+  { id:"J2", label:"J₂", arrive:2, burst:4 },
+  { id:"J3", label:"J₃", arrive:4, burst:1 },
+  { id:"J4", label:"J₄", arrive:5, burst:4 },
+];
+
+const SEGMENTS = [
+  { id:"J1", label:"J₁", start:0,  end:2  },
+  { id:"J2", label:"J₂", start:2,  end:4  },
+  { id:"J3", label:"J₃", start:4,  end:5  },
+  { id:"J2", label:"J₂", start:5,  end:7  },
+  { id:"J4", label:"J₄", start:7,  end:11 },
+  { id:"J1", label:"J₁", start:11, end:16 },
+];
+
+const PREEMPTIONS = [2, 4, 5, 7];
+
+const FINISH = { J1:16, J2:7, J3:5, J4:11 };
+
+const STATS = JOBS.map(j => {
+  const ft = FINISH[j.id];
+  const ta = ft - j.arrive;
+  const wta = ta / j.burst;
+  const wait = ta - j.burst;
+  return { ...j, finish:ft, wait, turnaround:ta, wta };
+});
+
+let hoveredJob = null;
+
+// ---- Gantt Bars ----
+const barsEl = document.getElementById("gantt-bars");
+barsEl.style.width = (TOTAL * SCALE) + "px";
+
+// Preemption dividers
+PREEMPTIONS.forEach(t => {
+  const line = document.createElement("div");
+  line.className = "preempt-line";
+  line.style.left = (t * SCALE - 1) + "px";
+  barsEl.appendChild(line);
+});
+
+SEGMENTS.forEach(seg => {
+  const c = COLORS[seg.id];
+  const w = (seg.end - seg.start) * SCALE;
+  const bar = document.createElement("div");
+  bar.className = "bar";
+  bar.dataset.job = seg.id;
+  bar.style.cssText = `left:${seg.start*SCALE}px;width:${w}px;background:${c.light};border-color:${c.border};color:${c.border};font-size:${w>=28?22:14}px;`;
+  if (w >= 18) bar.textContent = seg.label;
+  bar.onmouseenter = () => { hoveredJob = seg.id; refreshHover(); };
+  bar.onmouseleave = () => { hoveredJob = null;   refreshHover(); };
+  barsEl.appendChild(bar);
+});
+
+// ---- Ticks ----
+const ticksEl = document.getElementById("gantt-ticks");
+ticksEl.style.width = (TOTAL * SCALE + 20) + "px";
+const bl = document.createElement("div");
+bl.className = "gantt-baseline";
+bl.style.width = (TOTAL * SCALE) + "px";
+ticksEl.appendChild(bl);
+
+for (let t = 0; t <= TOTAL; t++) {
+  const isRed = PREEMPTIONS.includes(t);
+  const d = document.createElement("div");
+  d.className = "tick";
+  d.style.left = (t * SCALE) + "px";
+  d.innerHTML = `
+    <div class="tick-line ${isRed?'red':'gray'}"></div>
+    <span class="tick-num ${isRed?'red':t%4===0?'bold':''}">${t}</span>`;
+  ticksEl.appendChild(d);
+}
+
+// ---- Arrivals ----
+const arrivalsEl = document.getElementById("gantt-arrivals");
+arrivalsEl.style.width = (TOTAL * SCALE + 20) + "px";
+JOBS.forEach(j => {
+  const c = COLORS[j.id];
+  const d = document.createElement("div");
+  d.className = "arrival";
+  d.style.left = (j.arrive * SCALE) + "px";
+  d.innerHTML = `
+    <div class="arrival-line" style="background:${c.border}"></div>
+    <span class="arrival-label" style="color:${c.border}">${j.label}到达</span>`;
+  arrivalsEl.appendChild(d);
+});
+
+// ---- Stats Table ----
+const tbody = document.getElementById("stats-body");
+STATS.forEach((j, i) => {
+  const c = COLORS[j.id];
+  const tr = document.createElement("tr");
+  tr.className = i%2===0?"row-even":"row-odd";
+  tr.dataset.job = j.id;
+  tr.innerHTML = `
+    <td><span class="job-badge" style="color:${c.border};background:${c.light};border-color:${c.border}">${j.label}</span></td>
+    <td>${j.arrive}</td>
+    <td>${j.burst}</td>
+    <td>${j.finish}</td>
+    <td style="font-weight:700;color:#6366f1">${j.wait}</td>
+    <td style="font-weight:700;color:#10b981">${j.turnaround}</td>
+    <td style="font-weight:700;color:#f59e0b">${j.wta.toFixed(2)}</td>
+  `;
+  tr.onmouseenter = () => { hoveredJob = j.id; refreshHover(); };
+  tr.onmouseleave = () => { hoveredJob = null;  refreshHover(); };
+  tbody.appendChild(tr);
+});
+
+const avgWait = (STATS.reduce((s,j)=>s+j.wait,      0)/STATS.length).toFixed(2);
+const avgTA   = (STATS.reduce((s,j)=>s+j.turnaround, 0)/STATS.length).toFixed(2);
+const avgWTA  = (STATS.reduce((s,j)=>s+j.wta,        0)/STATS.length).toFixed(2);
+document.getElementById("avg-wait").textContent = avgWait;
+document.getElementById("avg-ta").textContent   = avgTA;
+document.getElementById("avg-wta").textContent  = avgWTA;
+
+// ---- Legend ----
+const legendEl = document.getElementById("legend");
+JOBS.forEach(j => {
+  const c = COLORS[j.id];
+  const item = document.createElement("div");
+  item.className = "legend-item";
+  item.innerHTML = `<div class="legend-dot" style="background:${c.bg}"></div><span>${j.label}：到达 ${j.arrive} · 运行 ${j.burst}</span>`;
+  legendEl.appendChild(item);
+});
+
+// ---- Hover ----
+function refreshHover() {
+  barsEl.querySelectorAll(".bar").forEach(bar => {
+    const jid = bar.dataset.job;
+    const c = COLORS[jid];
+    const isHov = hoveredJob === jid;
+    bar.style.background = isHov ? c.bg    : c.light;
+    bar.style.color      = isHov ? "#fff"  : c.border;
+    bar.style.boxShadow  = isHov ? `0 6px 18px ${c.bg}55` : "none";
+    bar.style.transform  = isHov ? "translateY(-3px)" : "none";
+  });
+  tbody.querySelectorAll("tr").forEach((tr, i) => {
+    const c = COLORS[tr.dataset.job];
+    tr.style.background = hoveredJob === tr.dataset.job ? c.light : (i%2===0?"#fff":"#fafafa");
+  });
+}
+</script>
+</body>
+</html>

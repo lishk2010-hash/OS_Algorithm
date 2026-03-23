@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>非抢占式优先级调度</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+  background: linear-gradient(135deg,#f0f4ff,#fdf2f8);
+  min-height: 100vh; padding: 32px;
+  display: flex; flex-direction: column; align-items: center; gap: 28px;
+}
+
+/* Header */
+.header { text-align: center; }
+.header h1 { font-size: 26px; font-weight: 800; color: #1a2340; }
+.header h2 { font-size: 18px; font-weight: 600; color: #4b5563; margin-top: 8px; }
+
+/* Card */
+.card {
+  background: #fff; border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+  padding: 28px 36px; width: 100%; max-width: 960px; overflow-x: auto;
+}
+.card-label { font-size: 15px; font-weight: 700; color: #6b7280; margin-bottom: 18px; letter-spacing: 1px; }
+
+/* Gantt */
+.gantt-bars     { position: relative; height: 72px; margin-left: 4px; }
+.gantt-ticks    { position: relative; height: 30px; margin-left: 4px; margin-top: 4px; }
+.gantt-baseline { position: absolute; top: 0; left: 0; height: 1px; background: #e2e8f0; }
+
+.bar {
+  position: absolute; top: 0; height: 64px;
+  border-radius: 10px; border: 2px solid;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 3px;
+  font-weight: 800; cursor: default; overflow: hidden;
+  transition: background .2s, transform .15s, box-shadow .15s;
+}
+.bar:hover { transform: translateY(-3px); }
+
+.tick { position: absolute; display: flex; flex-direction: column; align-items: center; }
+.tick-line { width: 1px; height: 7px; background: #cbd5e1; }
+.tick-num  { font-size: 15px; color: #64748b; }
+.tick-num.bold { font-weight: 700; }
+
+/* Exec order */
+.exec-row { margin-top: 18px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.exec-label { font-size: 15px; color: #6b7280; font-weight: 600; }
+.exec-badge {
+  font-weight: 700; font-size: 15px; padding: 2px 10px;
+  border-radius: 12px; border: 1px solid; display: inline-block;
+}
+.exec-arrow { color: #cbd5e1; font-size: 18px; }
+
+.priority-note {
+  margin-top: 10px; font-size: 14px; color: #f59e0b;
+  font-weight: 600; display: flex; align-items: center; gap: 6px;
+}
+
+/* Table */
+table { width: 100%; border-collapse: collapse; font-size: 17px; }
+thead tr { background: #f8fafc; }
+th {
+  padding: 10px; text-align: center; font-weight: 700;
+  color: #374151; border-bottom: 2px solid #e2e8f0;
+  font-size: 15px; white-space: nowrap;
+}
+td { padding: 10px; text-align: center; }
+.row-even { background: #fff; }
+.row-odd  { background: #fafafa; }
+tfoot tr { border-top: 2px solid #e2e8f0; background: #f8fafc; }
+
+.job-badge {
+  font-weight: 800; padding: 2px 10px; border-radius: 20px;
+  border: 1px solid; display: inline-block;
+}
+
+/* Legend */
+.legend { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 15px; color: #4b5563; }
+.legend-dot { width: 13px; height: 13px; border-radius: 3px; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>非抢占式优先级调度</h1>
+  <h2>Non-preemptive Priority Scheduling · Gantt Chart</h2>
+</div>
+
+<div class="card">
+  <div class="card-label">CPU 时间轴</div>
+  <div class="gantt-bars"  id="gantt-bars"></div>
+  <div class="gantt-ticks" id="gantt-ticks"></div>
+  <div class="exec-row"    id="exec-row"></div>
+  <div class="priority-note"><span>⚠</span><span>数字越小，优先级越高</span></div>
+</div>
+
+<div class="card">
+  <div class="card-label">调度统计</div>
+  <table id="stats-table">
+    <thead><tr>
+      <th>进程</th><th>优先级</th><th>到达时间</th><th>运行时间</th>
+      <th>开始时间</th><th>完成时间</th><th>等待时间</th>
+      <th>周转时间 T</th><th>带权周转时间 W</th>
+    </tr></thead>
+    <tbody id="stats-body"></tbody>
+    <tfoot><tr id="avg-row">
+      <td colspan="6" style="text-align:right;font-weight:700;color:#6b7280;font-size:14px;">平均值</td>
+      <td id="avg-wait" style="font-weight:800;color:#6366f1;"></td>
+      <td id="avg-ta"   style="font-weight:800;color:#10b981;"></td>
+      <td id="avg-wta"  style="font-weight:800;color:#f59e0b;"></td>
+    </tr></tfoot>
+  </table>
+</div>
+
+<div class="legend" id="legend"></div>
+
+<script>
+const SCALE = 32, TOTAL = 19;
+
+const COLORS = {
+  P1:{ bg:"#6366f1", light:"#eef2ff", border:"#4f46e5" },
+  P2:{ bg:"#10b981", light:"#ecfdf5", border:"#059669" },
+  P3:{ bg:"#f59e0b", light:"#fffbeb", border:"#d97706" },
+  P4:{ bg:"#ef4444", light:"#fef2f2", border:"#dc2626" },
+  P5:{ bg:"#8b5cf6", light:"#f5f3ff", border:"#7c3aed" },
+};
+
+const JOBS = [
+  { id:"P1", priority:3, arrive:0, burst:10, start:6,  end:16 },
+  { id:"P2", priority:1, arrive:0, burst:1,  start:0,  end:1  },
+  { id:"P3", priority:3, arrive:0, burst:2,  start:16, end:18 },
+  { id:"P4", priority:4, arrive:0, burst:1,  start:18, end:19 },
+  { id:"P5", priority:2, arrive:0, burst:5,  start:1,  end:6  },
+];
+
+const SEGMENTS = [...JOBS].sort((a,b) => a.start - b.start);
+
+const STATS = JOBS.map(j => ({
+  ...j,
+  wait: j.start - j.arrive,
+  turnaround: j.end - j.arrive,
+  wta: (j.end - j.arrive) / j.burst,
+}));
+
+let hoveredJob = null;
+
+// ---- Gantt Bars ----
+const barsEl = document.getElementById("gantt-bars");
+barsEl.style.width = (TOTAL * SCALE) + "px";
+
+SEGMENTS.forEach(seg => {
+  const c = COLORS[seg.id];
+  const w = (seg.end - seg.start) * SCALE;
+  const bar = document.createElement("div");
+  bar.className = "bar";
+  bar.style.cssText = `left:${seg.start*SCALE}px;width:${w}px;background:${c.light};border-color:${c.border};color:${c.border};`;
+
+  if (w > 28) {
+    const name = document.createElement("span");
+    name.style.cssText = `font-size:22px;line-height:1;`;
+    name.textContent = seg.id;
+    bar.appendChild(name);
+  }
+  if (w > 44) {
+    const pri = document.createElement("span");
+    pri.style.cssText = `font-size:12px;opacity:0.85;`;
+    pri.textContent = "优先级 " + seg.priority;
+    bar.appendChild(pri);
+  }
+
+  bar.onmouseenter = () => { hoveredJob = seg.id; refreshHover(); };
+  bar.onmouseleave = () => { hoveredJob = null;   refreshHover(); };
+  barsEl.appendChild(bar);
+});
+
+// ---- Ticks ----
+const ticksEl = document.getElementById("gantt-ticks");
+ticksEl.style.width = (TOTAL * SCALE + 20) + "px";
+const bl = document.createElement("div");
+bl.className = "gantt-baseline";
+bl.style.width = (TOTAL * SCALE) + "px";
+ticksEl.appendChild(bl);
+
+for (let t = 0; t <= TOTAL; t++) {
+  const d = document.createElement("div");
+  d.className = "tick";
+  d.style.left = (t * SCALE) + "px";
+  d.innerHTML = `<div class="tick-line"></div><span class="tick-num ${t%5===0?'bold':''}">${t}</span>`;
+  ticksEl.appendChild(d);
+}
+
+// ---- Exec order ----
+const execRow = document.getElementById("exec-row");
+const lbl = document.createElement("span");
+lbl.className = "exec-label";
+lbl.textContent = "执行顺序：";
+execRow.appendChild(lbl);
+
+SEGMENTS.forEach((seg, i) => {
+  const c = COLORS[seg.id];
+  const badge = document.createElement("span");
+  badge.className = "exec-badge";
+  badge.style.cssText = `color:${c.border};background:${c.light};border-color:${c.border};`;
+  badge.textContent = seg.id;
+  execRow.appendChild(badge);
+  if (i < SEGMENTS.length - 1) {
+    const arr = document.createElement("span");
+    arr.className = "exec-arrow";
+    arr.textContent = "→";
+    execRow.appendChild(arr);
+  }
+});
+
+// ---- Stats Table ----
+const tbody = document.getElementById("stats-body");
+[...STATS].sort((a,b) => a.id.localeCompare(b.id)).forEach((j, i) => {
+  const c = COLORS[j.id];
+  const tr = document.createElement("tr");
+  tr.className = i%2===0 ? "row-even" : "row-odd";
+  tr.dataset.job = j.id;
+  tr.innerHTML = `
+    <td><span class="job-badge" style="color:${c.border};background:${c.light};border-color:${c.border}">${j.id}</span></td>
+    <td>${j.priority}</td>
+    <td>${j.arrive}</td>
+    <td>${j.burst}</td>
+    <td>${j.start}</td>
+    <td>${j.end}</td>
+    <td style="font-weight:700;color:#6366f1">${j.wait}</td>
+    <td style="font-weight:700;color:#10b981">${j.turnaround}</td>
+    <td style="font-weight:700;color:#f59e0b">${j.wta.toFixed(2)}</td>
+  `;
+  tr.onmouseenter = () => { hoveredJob = j.id; refreshHover(); };
+  tr.onmouseleave = () => { hoveredJob = null;  refreshHover(); };
+  tbody.appendChild(tr);
+});
+
+const avgWait = (STATS.reduce((s,j)=>s+j.wait,      0)/STATS.length).toFixed(2);
+const avgTA   = (STATS.reduce((s,j)=>s+j.turnaround, 0)/STATS.length).toFixed(2);
+const avgWTA  = (STATS.reduce((s,j)=>s+j.wta,        0)/STATS.length).toFixed(2);
+document.getElementById("avg-wait").textContent = avgWait;
+document.getElementById("avg-ta").textContent   = avgTA;
+document.getElementById("avg-wta").textContent  = avgWTA;
+
+// ---- Legend ----
+const legendEl = document.getElementById("legend");
+[...JOBS].sort((a,b)=>a.id.localeCompare(b.id)).forEach(j => {
+  const c = COLORS[j.id];
+  const item = document.createElement("div");
+  item.className = "legend-item";
+  item.innerHTML = `<div class="legend-dot" style="background:${c.bg}"></div><span>${j.id}：优先级 ${j.priority} · 运行 ${j.burst}</span>`;
+  legendEl.appendChild(item);
+});
+
+// ---- Hover ----
+function refreshHover() {
+  const bars = barsEl.querySelectorAll(".bar");
+  SEGMENTS.forEach((seg, i) => {
+    const c = COLORS[seg.id];
+    const isHov = hoveredJob === seg.id;
+    bars[i].style.background  = isHov ? c.bg    : c.light;
+    bars[i].style.color       = isHov ? "#fff"  : c.border;
+    bars[i].style.boxShadow   = isHov ? `0 6px 18px ${c.bg}55` : "none";
+    bars[i].style.transform   = isHov ? "translateY(-3px)" : "none";
+    // sub text color
+    if (bars[i].children[1]) bars[i].children[1].style.color = isHov ? "rgba(255,255,255,0.85)" : c.border;
+  });
+
+  tbody.querySelectorAll("tr").forEach((tr, i) => {
+    const c = COLORS[tr.dataset.job];
+    const isHov = hoveredJob === tr.dataset.job;
+    tr.style.background = isHov ? c.light : (i%2===0 ? "#fff" : "#fafafa");
+  });
+}
+</script>
+</body>
+</html>

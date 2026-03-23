@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>银行家算法演示</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f3f1eb;--surf:#fff;--surf2:#eceae2;--bdr:#d2cec2;
+  --tp:#16140e;--ts:#52504a;--tm:#86847e;
+  --cp:#4535c0;--cpl:#e8e5fb;--cpm:#8a80e4;
+  --cg:#0b7d58;--cgl:#ccf0e3;--cgm:#46c498;
+  --co:#c43810;--col:#fce6de;
+  --ca:#b87000;--cal:#faeeda;
+}
+body{font-family:'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;
+  background:var(--bg);color:var(--tp);padding:1.25rem 1.75rem 2rem;
+  font-size:16px;line-height:1.6;max-width:1100px;margin:0 auto}
+h1{font-size:26px;font-weight:700;text-align:center;margin-bottom:4px}
+.subtitle{font-size:16px;color:var(--ts);text-align:center;margin-bottom:1.25rem;
+  padding-bottom:1.25rem;border-bottom:2px solid var(--bdr)}
+.tabs{display:flex;gap:6px;margin-bottom:1.25rem}
+.tab{padding:8px 22px;font-size:15px;font-weight:600;border:2px solid var(--bdr);
+  border-radius:8px;background:var(--surf);color:var(--ts)}
+.tab.on{background:var(--cp);color:#fff;border-color:var(--cp)}
+.panel{display:none}.panel.on{display:block}
+.cfg-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media(max-width:680px){.cfg-grid{grid-template-columns:1fr}}
+.card{background:var(--surf);border:2px solid var(--bdr);border-radius:12px;
+  padding:1.25rem 1.5rem;margin-bottom:14px}
+.card h3{font-size:16px;font-weight:700;margin-bottom:10px}
+.row{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.lbl{font-size:14px;color:var(--ts);min-width:90px}
+input[type=number]{width:64px;padding:5px 8px;font-size:14px;border:2px solid var(--bdr);
+  border-radius:6px;background:var(--surf);color:var(--tp);font-family:inherit;text-align:center}
+input[type=number]:focus{outline:none;border-color:var(--cpm)}
+.hint{font-size:12px;color:var(--tm)}
+.mtx-wrap{overflow-x:auto;margin-bottom:8px}
+table{border-collapse:collapse;font-size:14px;min-width:100%}
+th{padding:7px 10px;background:var(--surf2);color:var(--ts);font-weight:600;
+  text-align:center;border-bottom:2px solid var(--bdr);white-space:nowrap}
+td{padding:5px 5px;border-bottom:1px solid var(--surf2);text-align:center}
+td input[type=number]{width:52px;padding:4px 5px;font-size:13px}
+td.pname{font-weight:700;color:var(--cp);text-align:left;padding-left:10px;white-space:nowrap}
+tr:last-child td{border-bottom:none}
+.btn{padding:8px 20px;font-size:14px;font-weight:600;border:2px solid var(--bdr);
+  border-radius:8px;cursor:pointer;background:var(--surf);color:var(--tp);
+  transition:.1s;white-space:nowrap}
+.btn:hover:not(:disabled){background:var(--surf2);border-color:var(--tm)}
+.btn.primary{background:var(--cp);color:#fff;border-color:var(--cp)}
+.btn.primary:hover:not(:disabled){background:#3828a8}
+.btn:disabled{opacity:.4;cursor:default}
+.run-layout{display:block}
+.state-table{font-size:13px;width:100%;border-collapse:separate;border-spacing:0;overflow:visible}
+.state-table th{padding:6px 8px;background:var(--surf2);color:var(--ts);font-weight:600;
+  border-bottom:2px solid var(--bdr);text-align:center;white-space:nowrap;font-size:12px}
+.state-table td{padding:5px 8px;border-bottom:1px solid var(--surf2);text-align:center;
+  position:relative;z-index:1;will-change:background,color,box-shadow}
+.state-table td.pname{font-weight:700;text-align:left;padding-left:8px}
+.row-done td{background:#c8f4e0!important;color:#013818}
+.row-cur-ok td{background:#c8d8ff!important;color:#0a1858;font-weight:700}
+.row-cur-no td{background:#ffd8cc!important;color:#601000;font-weight:700}
+
+.step-lbl{font-size:13px;font-weight:700;color:var(--cp);
+  font-family:'SF Mono','Fira Code',monospace;min-width:90px;text-align:center}
+.prog-bar{height:8px;background:#d8d4cc;border-radius:4px;overflow:hidden;
+  cursor:pointer;flex:1;min-width:80px}
+.prog-fill{height:100%;background:var(--cp);border-radius:4px;transition:width .2s}
+.explain{background:var(--surf);border:2px solid var(--bdr);border-radius:12px;
+  padding:1rem 1.25rem;margin-bottom:12px}
+.explain h4{font-size:15px;font-weight:700;margin-bottom:8px;
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.e-tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;flex-shrink:0}
+.tag-init{background:var(--surf2);color:var(--ts)}
+.tag-ok{background:var(--cgl);color:var(--cg)}
+.tag-no{background:var(--cal);color:var(--ca)}
+.tag-done{background:var(--cgl);color:#063328}
+.tag-safe{background:#d4f0e6;color:#063328}
+.tag-unsafe{background:var(--col);color:var(--co)}
+.explain p{font-size:14px;color:var(--ts);line-height:1.8}
+.explain b{color:var(--tp)}
+.mono{font-family:'SF Mono','Fira Code',monospace;font-size:12px;
+  background:var(--surf2);padding:1px 4px;border-radius:3px}
+.avail-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.av-chip{padding:4px 12px;border-radius:7px;font-size:13px;font-weight:700;
+  background:#d8f8ea;border:2px solid #46c498;color:#033820;transition:background-color .35s,color .35s,outline .35s}
+.safe-box{background:#c0f4dc;border:3px solid #009840;border-radius:10px;
+  padding:10px 14px;margin-bottom:12px}
+.safe-box h4{font-size:14px;font-weight:700;color:#004818;margin-bottom:6px}
+.seq-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.seq-chip{padding:4px 14px;border-radius:6px;font-size:14px;font-weight:700;
+  background:#fff;border:2px solid var(--cgm);color:var(--cg)}
+.seq-chip.done{background:#00a840;color:#fff;border-color:#007830}
+.seq-chip.cur{background:var(--cp);color:#fff;border-color:var(--cp)}
+.seq-arrow{color:var(--cgm);font-size:16px;font-weight:700}
+.unsafe-box{background:#ffd0c0;border:3px solid #c02000;border-radius:10px;
+  padding:10px 14px;margin-bottom:12px}
+.unsafe-box h4{font-size:14px;font-weight:700;color:#800800;margin-bottom:4px}
+.unsafe-box p{font-size:13px;color:#600800;line-height:1.7}
+.req-card{background:var(--surf);border:2px solid var(--bdr);border-radius:12px;
+  padding:1rem 1.25rem;margin-bottom:12px}
+.req-card h4{font-size:15px;font-weight:700;margin-bottom:10px}
+select{padding:5px 8px;font-size:14px;border:2px solid var(--bdr);border-radius:6px;
+  background:var(--surf);color:var(--tp);font-family:inherit;cursor:pointer}
+.rt-chip{background:var(--cal);border:2px solid #e8b84a;border-radius:6px;
+  padding:3px 10px;font-size:13px;font-weight:700;color:var(--ca);display:inline-block}
+</style>
+</head>
+<body>
+
+<h1>银行家算法演示</h1>
+<p class="subtitle">Banker's Algorithm — 动态安全性检测与资源分配决策</p>
+
+<div class="tabs">
+  <span class="tab on" id="tab-cfg">① 配置系统参数</span>
+  <span class="tab"    id="tab-run">② 算法演示</span>
+</div>
+
+<!-- CONFIG PANEL -->
+<div class="panel on" id="panel-cfg">
+  <div class="cfg-grid">
+    <div>
+      <div class="card">
+        <h3>系统资源</h3>
+        <div class="row">
+          <span class="lbl">资源种类数</span>
+          <input type="number" id="n-res" min="1" max="5" value="3" oninput="rebuildCfg()">
+          <span class="hint">1 – 5 种</span>
+        </div>
+        <div id="res-chips" class="row" style="gap:6px;flex-wrap:wrap"></div>
+        <div class="row"><span class="lbl">各种资源总量</span></div>
+        <div class="mtx-wrap"><table id="total-tbl"></table></div>
+      </div>
+      <div class="card">
+        <h3>进程数量</h3>
+        <div class="row">
+          <span class="lbl">进程数</span>
+          <input type="number" id="n-proc" min="1" max="8" value="5" oninput="rebuildCfg()">
+          <span class="hint">1 – 8 个</span>
+        </div>
+      </div>
+      <div class="card">
+        <h3>配置摘要</h3>
+        <div id="cfg-preview" style="font-size:14px;color:var(--ts);line-height:2"></div>
+        <div id="cfg-err" style="font-size:13px;color:var(--co);font-weight:600;margin-top:6px"></div>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>最大需求矩阵 Max</h3>
+        <p style="font-size:12px;color:var(--tm);margin-bottom:8px">进程对每种资源的最大需求量</p>
+        <div class="mtx-wrap"><table id="max-tbl"></table></div>
+      </div>
+      <div class="card">
+        <h3>已分配矩阵 Allocation</h3>
+        <p style="font-size:12px;color:var(--tm);margin-bottom:8px">当前已分配给各进程的资源量（≤ Max）</p>
+        <div class="mtx-wrap"><table id="alloc-tbl"></table></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+    <button class="btn primary" onclick="loadExample()">载入教材示例</button>
+    <button class="btn" onclick="clearInputs()">清空数据</button>
+  </div>
+  <div style="text-align:center">
+    <button class="btn primary" id="start-btn" onclick="startDemo()"
+      style="padding:10px 40px;font-size:16px">开始演示 →</button>
+  </div>
+</div>
+
+<!-- RUN PANEL -->
+<div class="panel" id="panel-run">
+  <div class="run-layout">
+    <!-- Left -->
+    <div>
+      <div class="card" style="padding:.85rem 1.25rem;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <span style="font-size:15px;font-weight:700;white-space:nowrap">当前可用 Available</span>
+          <div class="avail-row" id="avail-row" style="margin:0"></div>
+        </div>
+      </div>
+      <div class="card" style="padding:.85rem 1rem;margin-bottom:10px">
+        <div class="mtx-wrap">
+          <table class="state-table" id="state-tbl"></table>
+        </div>
+      </div>
+      <div class="step-ctrl">
+        <button class="btn primary" id="play-btn" onclick="RP.toggle()"
+          style="padding:6px 14px;font-size:14px">▶ 播放</button>
+        <button class="btn" onclick="RP.step(-1)" style="padding:6px 11px">◀</button>
+        <button class="btn" onclick="RP.step(1)"  style="padding:6px 11px">▶</button>
+        <button class="btn" onclick="RP.reset()"  style="padding:6px 11px">↺</button>
+        <span class="step-lbl" id="step-lbl">—</span>
+        <div class="prog-bar" id="prog-bar" onclick="RP.seek(event)">
+          <div class="prog-fill" id="prog-fill" style="width:0%"></div>
+        </div>
+        <select id="spd-sel" style="font-size:13px;padding:4px 6px">
+          <option value="1500">慢</option>
+          <option value="800" selected>中</option>
+          <option value="350">快</option>
+        </select>
+      </div>
+      <!-- Request -->
+      <div class="req-card">
+        <h4>资源请求模拟</h4>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <span style="font-size:14px;color:var(--ts)">进程</span>
+          <select id="req-proc"></select>
+          <span style="font-size:14px;color:var(--ts)">请求量</span>
+          <div id="req-inputs" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"></div>
+          <button class="btn primary" onclick="doRequest()" style="padding:5px 12px;font-size:14px">申请</button>
+        </div>
+        <div id="req-result" style="font-size:13px;line-height:1.7;min-height:20px"></div>
+      </div>
+
+      <!-- Sequence + Explanation (moved from right column) -->
+      <div id="seq-area"></div>
+      <div class="explain" id="exp-box">
+        <h4 id="exp-title">银行家算法</h4>
+        <p id="exp-text" style="font-size:14px;color:var(--ts);line-height:1.8"></p>
+      </div>
+      <div class="card" style="padding:.9rem 1.25rem">
+        <h3 style="font-size:14px;margin-bottom:8px">颜色说明</h3>
+        <div style="font-size:13px;color:var(--ts);line-height:2">
+          <b style="color:var(--tp)">Need = Max − Allocation</b><br>
+          安全性算法：找到一个进程序列，使每个进程都能在 Work（可用资源）满足其 Need 后执行完毕。<br><br>
+          <span style="display:inline-block;width:12px;height:12px;background:#80f0b0;border-radius:2px;vertical-align:middle"></span> Need ≤ Work（条件满足） &nbsp;
+          <span style="display:inline-block;width:12px;height:12px;background:#ffd060;border-radius:2px;vertical-align:middle"></span> Need &gt; Work（条件不满足）<br>
+          <span style="display:inline-block;width:12px;height:12px;background:#ff9080;border-radius:2px;vertical-align:middle"></span> Alloc 归还 / Work 减少 &nbsp;
+          <span style="display:inline-block;width:12px;height:12px;background:#c8f4e0;border-radius:2px;vertical-align:middle"></span> 进程已完成行
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="margin-top:10px">
+    <button class="btn" onclick="switchTab('cfg')">← 返回修改配置</button>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────
+const RES_NAMES = ['A','B','C','D','E'];
+let nRes=3, nProc=5;
+let totalRes=[], allocMtx=[], maxMtx=[];
+let steps=[], safeSeq=[], isSafe=false;
+let demoReady = false;
+
+// ── Tab ────────────────────────────────────────────────────────
+function switchTab(id){
+  ['cfg','run'].forEach(t=>{
+    document.getElementById('panel-'+t).classList.toggle('on', t===id);
+    document.getElementById('tab-'+t).classList.toggle('on', t===id);
+  });
+}
+
+// ── Config ─────────────────────────────────────────────────────
+function rebuildCfg(clear){
+  nRes  = Math.min(5, Math.max(1, +document.getElementById('n-res').value||3));
+  nProc = Math.min(8, Math.max(1, +document.getElementById('n-proc').value||5));
+
+  // Resource chips
+  const rc=document.getElementById('res-chips');
+  rc.innerHTML='';
+  for(let j=0;j<nRes;j++){
+    const s=document.createElement('span');
+    s.className='rt-chip'; s.textContent='R'+RES_NAMES[j];
+    rc.appendChild(s);
+  }
+  buildSingleRow('total-tbl','tot', clear);
+  buildMatrix('max-tbl','mx', nProc, clear);
+  buildMatrix('alloc-tbl','al', nProc, clear);
+  updatePreview();
+}
+
+function buildSingleRow(tblId, pfx, clear){
+  const old = clear ? null : snapshot(pfx, 1);
+  let h='<tr>';
+  for(let j=0;j<nRes;j++) h+=`<th>R${RES_NAMES[j]}</th>`;
+  h+='</tr><tr>';
+  for(let j=0;j<nRes;j++){
+    const v = clear ? 0 : (old[0]?.[j]??'');
+    h+=`<td><input type="number" id="${pfx}-0-${j}" min="0" max="99" value="${v}" oninput="updatePreview()"></td>`;
+  }
+  h+='</tr>';
+  document.getElementById(tblId).innerHTML=h;
+}
+
+function buildMatrix(tblId, pfx, rows, clear){
+  const old = clear ? null : snapshot(pfx, rows);
+  let h='<tr><th>进程</th>';
+  for(let j=0;j<nRes;j++) h+=`<th>R${RES_NAMES[j]}</th>`;
+  h+='</tr>';
+  for(let i=0;i<rows;i++){
+    h+=`<tr><td class="pname">P${i+1}</td>`;
+    for(let j=0;j<nRes;j++){
+      const v = clear ? 0 : (old[i]?.[j]??'');
+      h+=`<td><input type="number" id="${pfx}-${i}-${j}" min="0" max="99" value="${v}" oninput="updatePreview()"></td>`;
+    }
+    h+='</tr>';
+  }
+  document.getElementById(tblId).innerHTML=h;
+}
+
+function snapshot(pfx, rows){
+  const m=[];
+  for(let i=0;i<rows;i++){
+    const row=[];
+    for(let j=0;j<5;j++){
+      const el=document.getElementById(`${pfx}-${i}-${j}`);
+      row.push(el ? (+el.value||0) : null);
+    }
+    m.push(row);
+  }
+  return m;
+}
+
+function readRow(pfx){ return Array.from({length:nRes},(_,j)=>+document.getElementById(`${pfx}-0-${j}`)?.value||0); }
+function readMtx(pfx,rows){ return Array.from({length:rows},(_,i)=>Array.from({length:nRes},(_,j)=>+document.getElementById(`${pfx}-${i}-${j}`)?.value||0)); }
+
+function updatePreview(){
+  const tot=readRow('tot');
+  const alloc=readMtx('al',nProc);
+  const max=readMtx('mx',nProc);
+  const avail=tot.slice();
+  for(let i=0;i<nProc;i++) for(let j=0;j<nRes;j++) avail[j]-=alloc[i][j];
+  const fmt=(arr)=>arr.map((v,j)=>`R${RES_NAMES[j]}=${v}`).join('，');
+  document.getElementById('cfg-preview').innerHTML=
+    `<b>资源总量：</b>${fmt(tot)}<br><b>当前可用：</b>${fmt(avail)}<br><b>进程数：</b>${nProc} &nbsp;|&nbsp; <b>资源种类：</b>${nRes}`;
+  let err='';
+  for(let i=0;i<nProc&&!err;i++)
+    for(let j=0;j<nRes&&!err;j++){
+      if(alloc[i][j]>max[i][j]) err=`P${i+1} Allocation[R${RES_NAMES[j]}]=${alloc[i][j]} > Max[R${RES_NAMES[j]}]=${max[i][j]}`;
+    }
+  for(let j=0;j<nRes&&!err;j++) if(avail[j]<0) err=`R${RES_NAMES[j]} 已分配量超过总量`;
+  document.getElementById('cfg-err').textContent=err?'⚠ '+err:'';
+}
+
+function loadExample(){
+  document.getElementById('n-res').value=3;
+  document.getElementById('n-proc').value=5;
+  nRes=3; nProc=5; rebuildCfg();
+  [[10,5,7]].forEach(r=>r.forEach((v,j)=>{ const el=document.getElementById(`tot-0-${j}`); if(el)el.value=v; }));
+  [[0,1,0],[2,0,0],[3,0,2],[2,1,1],[0,0,2]].forEach((r,i)=>r.forEach((v,j)=>{ const el=document.getElementById(`al-${i}-${j}`); if(el)el.value=v; }));
+  [[7,5,3],[3,2,2],[9,0,2],[2,2,2],[4,3,3]].forEach((r,i)=>r.forEach((v,j)=>{ const el=document.getElementById(`mx-${i}-${j}`); if(el)el.value=v; }));
+  updatePreview();
+}
+
+function clearInputs(){
+  // Zero all inputs first, then rebuild to preserve structure
+  document.querySelectorAll('#panel-cfg input[type=number]').forEach(el=>{
+    if(el.id==='n-res'||el.id==='n-proc') return; // keep counts
+    el.value=0;
+  });
+  updatePreview();
+}
+
+// ── Safety algorithm ───────────────────────────────────────────
+function computeSafety(avail0, alloc, need, n, m){
+  const work=avail0.slice();
+  const finish=Array(n).fill(false);
+  const seq=[];
+  const log=[];
+
+  const fmtWork=()=>work.map((v,j)=>`R${RES_NAMES[j]}:${v}`).join(', ');
+  const fmtVec=(v)=>v.map((val,j)=>`R${RES_NAMES[j]}:${val}`).join(', ');
+
+  log.push({type:'init', work:work.slice(), finish:finish.slice(),
+    text:`初始化 Work = Available = [${fmtWork()}]，所有进程 Finish = false。开始寻找安全序列…`});
+
+  let changed=true;
+  while(changed){
+    changed=false;
+    for(let i=0;i<n;i++){
+      if(finish[i]) continue;
+      const ok=need[i].every((v,j)=>v<=work[j]);
+      log.push({type:'check', proc:i, canRun:ok,
+        work:work.slice(), finish:finish.slice(), need:need[i].slice(),
+        text: ok
+          ? `检测 P${i+1}：Need[${fmtVec(need[i])}] ≤ Work[${fmtWork()}]  ✓ 满足条件，可分配资源`
+          : `检测 P${i+1}：Need[${fmtVec(need[i])}] > Work[${fmtWork()}]  ✗ 条件不满足，跳过`});
+      if(ok){
+        finish[i]=true;
+        // Step A: show Alloc being released (Work not yet updated)
+        log.push({type:'alloc_release', proc:i,
+          work:work.slice(), finish:finish.slice(), alloc:alloc[i].slice(),
+          text:`P${i+1} 执行完毕，Finish[P${i+1}] = true。\n即将归还资源 Allocation = [${fmtVec(alloc[i])}]（红色高亮），Work 尚未更新。`});
+        // Now update Work
+        for(let j=0;j<m;j++) work[j]+=alloc[i][j];
+        seq.push(i);
+        changed=true;
+        // Step B: show Work updated (Alloc shown as 0)
+        log.push({type:'work_update', proc:i,
+          work:work.slice(), finish:finish.slice(), alloc:alloc[i].slice(),
+          text:`资源归还完成，Work 更新为 [${fmtWork()}]（绿色高亮）。\nP${i+1} 的 Allocation 已清零，继续寻找下一个可执行进程。`});
+        break;
+      }
+    }
+  }
+
+  const safe=finish.every(f=>f);
+  log.push({type:safe?'safe':'unsafe', work:work.slice(), finish:finish.slice(), seq:seq.slice(),
+    text: safe
+      ? `所有进程 Finish 均为 true。系统处于安全状态！\n安全序列：${seq.map(i=>'P'+(i+1)).join(' → ')}`
+      : `检查结束，仍有进程 Finish = false（${finish.map((f,i)=>f?null:'P'+(i+1)).filter(Boolean).join('、')}）。系统不安全，存在死锁风险！`});
+  return {safe, seq, log};
+}
+
+// ── Start demo ─────────────────────────────────────────────────
+function startDemo(){
+  if(document.getElementById('cfg-err').textContent){
+    alert('配置有误，请先修正！'); return;
+  }
+  totalRes = readRow('tot');
+  allocMtx = readMtx('al', nProc);
+  maxMtx   = readMtx('mx', nProc);
+  const need = allocMtx.map((r,i)=>r.map((v,j)=>maxMtx[i][j]-v));
+  const avail = totalRes.slice();
+  for(let i=0;i<nProc;i++) for(let j=0;j<nRes;j++) avail[j]-=allocMtx[i][j];
+
+  const result = computeSafety(avail, allocMtx, need, nProc, nRes);
+  steps    = result.log;
+  safeSeq  = result.seq;
+  isSafe   = result.safe;
+  demoReady = true;
+
+  // Build request UI
+  const sel=document.getElementById('req-proc');
+  sel.innerHTML='';
+  for(let i=0;i<nProc;i++){
+    const o=document.createElement('option');
+    o.value=i; o.textContent='P'+(i+1); sel.appendChild(o);
+  }
+  const ri=document.getElementById('req-inputs');
+  ri.innerHTML='';
+  for(let j=0;j<nRes;j++){
+    const lbl=document.createElement('span');
+    lbl.textContent=`R${RES_NAMES[j]}:`; lbl.style.cssText='font-size:13px;color:var(--ts)';
+    const inp=document.createElement('input');
+    inp.type='number'; inp.min=0; inp.max=99; inp.value=0;
+    inp.id=`req-r${j}`; inp.style.width='52px';
+    ri.appendChild(lbl); ri.appendChild(inp);
+  }
+  document.getElementById('req-result').innerHTML='';
+
+  switchTab('run');
+  RP.reset();
+}
+
+// ── Persistent background highlight (no flash) ──────────────────
+// Colors stay for the entire step, cleared on next step.
+// CSS transition handles smooth change between steps.
+const HL = {
+  up:   { bg:'#80f0b0', color:'#013818', shadow:'inset 0 0 0 3px #009840' }, // green
+  down: { bg:'#ff9080', color:'#500800', shadow:'inset 0 0 0 3px #c02000' }, // red
+  new:  { bg:'#90a8ff', color:'#080840', shadow:'inset 0 0 0 3px #2840c0' }, // blue
+  warn: { bg:'#ffd060', color:'#3a1800', shadow:'inset 0 0 0 3px #c07000' }, // amber
+};
+
+function setHL(el, type){
+  el.style.transition = 'background-color 0.35s, color 0.35s, box-shadow 0.35s';
+  if(!type){ el.style.backgroundColor=''; el.style.color=''; el.style.boxShadow=''; el.style.fontWeight=''; return; }
+  const c = HL[type];
+  el.style.backgroundColor = c.bg;
+  el.style.color = c.color;
+  el.style.boxShadow = c.shadow;
+  el.style.fontWeight = '700';
+}
+
+// keep these as no-ops so nothing else breaks
+function animateCell(td, type){
+  const presets = {
+    up:   { frames:[
+              { backgroundColor:'#00c060', color:'#fff', transform:'scale(1.35)', boxShadow:'0 0 0 4px #00c060', borderRadius:'6px', fontWeight:'800' },
+              { backgroundColor:'#40e090', color:'#fff', transform:'scale(1.15)', boxShadow:'0 0 0 2px #46c498', borderRadius:'4px', fontWeight:'700' },
+              { backgroundColor:'',       color:'',      transform:'scale(1)',    boxShadow:'none',              borderRadius:'0',   fontWeight:''    },
+            ]},
+    down: { frames:[
+              { backgroundColor:'#e02000', color:'#fff', transform:'scale(1.35)', boxShadow:'0 0 0 4px #e02000', borderRadius:'6px', fontWeight:'800' },
+              { backgroundColor:'#ff6040', color:'#fff', transform:'scale(1.15)', boxShadow:'0 0 0 2px #c43810', borderRadius:'4px', fontWeight:'700' },
+              { backgroundColor:'',        color:'',     transform:'scale(1)',    boxShadow:'none',              borderRadius:'0',   fontWeight:''    },
+            ]},
+    new:  { frames:[
+              { backgroundColor:'#3040e0', color:'#fff', transform:'scale(1.35)', boxShadow:'0 0 0 4px #4535c0', borderRadius:'6px', fontWeight:'800' },
+              { backgroundColor:'#7080f0', color:'#fff', transform:'scale(1.15)', boxShadow:'0 0 0 2px #8a80e4', borderRadius:'4px', fontWeight:'700' },
+              { backgroundColor:'',        color:'',     transform:'scale(1)',    boxShadow:'none',              borderRadius:'0',   fontWeight:''    },
+            ]},
+    warn: { frames:[
+              { backgroundColor:'#e08000', color:'#fff', transform:'scale(1.30)', boxShadow:'0 0 0 4px #e08000', borderRadius:'6px', fontWeight:'800' },
+              { backgroundColor:'#ffb030', color:'#fff', transform:'scale(1.12)', boxShadow:'0 0 0 2px #e8b84a', borderRadius:'4px', fontWeight:'700' },
+              { backgroundColor:'',        color:'',     transform:'scale(1)',    boxShadow:'none',              borderRadius:'0',   fontWeight:''    },
+            ]},
+  };
+  const p = presets[type] || presets.new;
+  td.getAnimations().forEach(a=>a.cancel());
+  td.animate(p.frames, { duration:900, easing:'cubic-bezier(0.22,1,0.36,1)', fill:'none' });
+}
+
+function animateChip(el, type){ /* replaced by setHL */ }
+
+// ── Render ─────────────────────────────────────────────────────
+function renderStep(si){
+  if(!demoReady || steps.length===0 || si<0 || si>=steps.length) return;
+  const s = steps[si];
+  const sPrev = si>0 ? steps[si-1] : null;
+
+  // ── Available chips — persistent highlight on change ──
+  const ar = document.getElementById('avail-row');
+  const existingChips = ar.querySelectorAll('.av-chip');
+  s.work.forEach((v, j) => {
+    let chip = existingChips[j];
+    if(!chip){ chip = document.createElement('div'); chip.className='av-chip'; ar.appendChild(chip); }
+    chip.textContent = `R${RES_NAMES[j]} = ${v}`;
+    const prevVal = sPrev ? sPrev.work[j] : null;
+    // Only show green highlight when Work actually increases (work_update step)
+    if(s.type==='work_update' && prevVal !== null && v > prevVal){
+      chip.style.transition='background-color .35s,color .35s,box-shadow .35s';
+      chip.style.backgroundColor='#80f0b0'; chip.style.color='#013818';
+      chip.style.boxShadow='inset 0 0 0 3px #ff6600'; chip.style.fontWeight='700';
+    } else if(prevVal !== null && v < prevVal){
+      chip.style.transition='background-color .35s,color .35s,box-shadow .35s';
+      chip.style.backgroundColor='#ff9080'; chip.style.color='#500800';
+      chip.style.boxShadow='inset 0 0 0 3px #ff6600'; chip.style.fontWeight='700';
+    } else {
+      chip.style.transition='background-color .35s,color .35s,box-shadow .35s';
+      chip.style.backgroundColor=''; chip.style.color='';
+      chip.style.boxShadow=''; chip.style.fontWeight='';
+    }
+  });
+  while(ar.children.length > nRes) ar.removeChild(ar.lastChild);
+
+  // ── State table: build skeleton once, then update cells ──
+  const tbl = document.getElementById('state-tbl');
+  const need = allocMtx.map((r,i)=>r.map((v,j)=>maxMtx[i][j]-v));
+
+  // Build header if not present or column count changed
+  const expectedCols = 1 + nRes*3 + 1; // pname + max + alloc + need + finish
+  const existingRows = tbl.querySelectorAll('tr');
+  const needRebuild = existingRows.length !== nProc+1 ||
+    (existingRows[0] && existingRows[0].querySelectorAll('th,td').length !== expectedCols);
+
+  if(needRebuild){
+    let h=`<tr><th>进程</th>`;
+    for(let j=0;j<nRes;j++) h+=`<th>Max<br>R${RES_NAMES[j]}</th>`;
+    for(let j=0;j<nRes;j++) h+=`<th>Alloc<br>R${RES_NAMES[j]}</th>`;
+    for(let j=0;j<nRes;j++) h+=`<th>Need<br>R${RES_NAMES[j]}</th>`;
+    h+=`<th>Finish</th></tr>`;
+    for(let i=0;i<nProc;i++){
+      h+=`<tr><td class="pname">P${i+1}</td>`;
+      const totalCells = nRes*3+1; // max+alloc+need+finish
+      for(let c=0;c<totalCells;c++) h+=`<td></td>`;
+      h+=`</tr>`;
+    }
+    tbl.innerHTML=h;
+  }
+
+  const rows = tbl.querySelectorAll('tr');
+  for(let i=0;i<nProc;i++){
+    const tr = rows[i+1];
+    if(!tr) continue;
+    const cells = tr.querySelectorAll('td');
+
+    // Row class
+    const isCur = (s.type==='check'||s.type==='alloc_release'||s.type==='work_update') && s.proc===i;
+    const wasFinished = sPrev ? sPrev.finish[i] : false;
+    const nowFinished = s.finish[i];
+
+    let rowClass = '';
+    if(nowFinished && s.type!=='alloc_release' && !(s.type==='alloc_release'&&s.proc===i)) rowClass = 'row-done';
+    else if(isCur && s.type==='check') rowClass = s.canRun ? 'row-cur-ok' : 'row-cur-no';
+    else if(isCur && (s.type==='alloc_release'||s.type==='work_update')) rowClass = 'row-cur-ok';
+    tr.className = rowClass;
+
+    // Max cells — static, no highlight
+    for(let j=0;j<nRes;j++){
+      const td=cells[1+j]; if(!td)continue;
+      td.textContent=maxMtx[i][j]; setHL(td,null);
+    }
+
+    // Alloc cells
+    for(let j=0;j<nRes;j++){
+      const td=cells[1+nRes+j]; if(!td)continue;
+      if(s.type==='alloc_release' && s.proc===i){
+        // Show original alloc value highlighted red — about to be released
+        td.textContent=s.alloc[j];
+        setHL(td,'down');
+      } else if(s.type==='work_update' && s.proc===i){
+        // Alloc now cleared to 0
+        td.textContent=0;
+        setHL(td,'down'); // keep red to show it was just zeroed
+      } else if(nowFinished){
+        // Already finished proc — show 0
+        td.textContent=0;
+        setHL(td,null);
+      } else {
+        td.textContent=allocMtx[i][j];
+        setHL(td,null);
+      }
+    }
+
+    // Need cells — green if satisfied, amber if not, during check step
+    for(let j=0;j<nRes;j++){
+      const td=cells[1+2*nRes+j]; if(!td)continue;
+      const nd=need[i][j], av=s.work[j];
+      td.textContent=nd;
+      if(isCur && s.type==='check') setHL(td, nd<=av ? 'up' : 'warn');
+      else setHL(td,null);
+    }
+
+    // Finish cell — always green for true, red for false
+    const ftd=cells[1+3*nRes];
+    if(ftd){
+      ftd.textContent = nowFinished ? 'true' : 'false';
+      ftd.style.transition = 'background-color 0.35s, color 0.35s';
+      ftd.style.fontWeight = '700';
+      if(nowFinished){
+        ftd.style.backgroundColor = '#80f0b0';
+        ftd.style.color = '#013818';
+        ftd.style.boxShadow = 'none';
+      } else {
+        ftd.style.backgroundColor = '#ff9080';
+        ftd.style.color = '#500800';
+        ftd.style.boxShadow = 'none';
+      }
+    }
+  }
+
+  // ── Sequence area ──
+  const doneProcs = steps.slice(0,si+1).filter(x=>x.type==='work_update').map(x=>x.proc);
+  const sa = document.getElementById('seq-area');
+
+  if(s.type==='safe'){
+    const chips = safeSeq.map((pi,idx)=>
+      (idx>0?'<span class="seq-arrow">→</span>':'')+
+      `<span class="seq-chip done">P${pi+1}</span>`).join('');
+    sa.innerHTML=`<div class="safe-box"><h4>✓ 系统安全！安全序列：</h4><div class="seq-row">${chips}</div></div>`;
+  } else if(s.type==='unsafe'){
+    sa.innerHTML=`<div class="unsafe-box"><h4>✗ 系统不安全（存在死锁风险）</h4><p>无法找到完整安全序列，银行家算法将拒绝导致此状态的资源请求。</p></div>`;
+  } else if(doneProcs.length>0){
+    const chips = doneProcs.map((pi,idx)=>
+      (idx>0?'<span class="seq-arrow">→</span>':'')+
+      `<span class="seq-chip done">P${pi+1}</span>`).join('');
+    sa.innerHTML=`<div class="safe-box" style="background:var(--surf2);border-color:var(--bdr)"><h4 style="color:var(--ts)">已完成进程：</h4><div class="seq-row">${chips}<span class="seq-arrow">→</span><span style="font-size:13px;color:var(--tm)">…</span></div></div>`;
+  } else {
+    sa.innerHTML='';
+  }
+
+  // ── Explanation ──
+  const tagMap = {
+    init:          ['init',  '初始化'],
+    check:         s.canRun ? ['ok','条件满足'] : ['no','条件不满足'],
+    alloc_release: ['down',  'Alloc 归还'],
+    work_update:   ['up',    'Work 更新'],
+    safe:          ['safe',  '系统安全'],
+    unsafe:        ['unsafe','系统不安全'],
+  };
+  const tagCssMap = { init:'tag-init', ok:'tag-ok', no:'tag-no', down:'tag-no', up:'tag-ok', done:'tag-done', safe:'tag-safe', unsafe:'tag-unsafe' };
+  const [tc,tt] = tagMap[s.type]||['init','处理中'];
+  const cssClass = tagCssMap[tc] || 'tag-init';
+  document.getElementById('exp-title').innerHTML=
+    `银行家安全性检测 <span class="e-tag ${cssClass}">${tt}</span>`;
+  document.getElementById('exp-text').innerHTML=
+    s.text.replace(/\n/g,'<br>')
+      .replace(/(P\d+)/g,'<b>$1</b>')
+      .replace(/(Work|Need|Available|Allocation|Finish)/g,'<span class="mono">$1</span>');
+
+  document.getElementById('step-lbl').textContent=`步骤 ${si+1} / ${steps.length}`;
+  document.getElementById('prog-fill').style.width=(si/(steps.length-1)*100)+'%';
+
+}
+
+// ── Player ─────────────────────────────────────────────────────
+const RP=(()=>{
+  let cur=0, playing=false, timer=null;
+  const spd=()=>+document.getElementById('spd-sel').value;
+  const go=(i)=>{ cur=Math.max(0,Math.min((steps.length||1)-1,i)); renderStep(cur); };
+  const tick=()=>{
+    if(!playing)return;
+    go(cur);
+    if(cur<steps.length-1){ cur++; timer=setTimeout(tick,spd()); }
+    else{ playing=false; document.getElementById('play-btn').textContent='▶ 播放'; }
+  };
+  return{
+    toggle(){
+      if(!demoReady)return;
+      playing=!playing;
+      document.getElementById('play-btn').textContent=playing?'⏸ 暂停':'▶ 播放';
+      if(playing){ if(cur>=steps.length-1)cur=0; tick(); }
+      else clearTimeout(timer);
+    },
+    step(d){
+      if(!demoReady)return;
+      if(playing){playing=false;clearTimeout(timer);document.getElementById('play-btn').textContent='▶ 播放';}
+      go(cur+d);
+    },
+    reset(){
+      if(!demoReady)return;
+      if(playing){playing=false;clearTimeout(timer);document.getElementById('play-btn').textContent='▶ 播放';}
+      cur=0; go(0);
+    },
+    seek(e){
+      if(!demoReady)return;
+      const bar=document.getElementById('prog-bar');
+      const i=Math.round(e.offsetX/bar.clientWidth*(steps.length-1));
+      if(playing){playing=false;clearTimeout(timer);document.getElementById('play-btn').textContent='▶ 播放';}
+      go(i);
+    }
+  };
+})();
+
+// ── Resource request ───────────────────────────────────────────
+function doRequest(){
+  if(!demoReady){ alert('请先完成配置并开始演示'); return; }
+  const need = allocMtx.map((r,i)=>r.map((v,j)=>maxMtx[i][j]-v));
+  const avail = totalRes.slice();
+  for(let i=0;i<nProc;i++) for(let j=0;j<nRes;j++) avail[j]-=allocMtx[i][j];
+
+  const p=+document.getElementById('req-proc').value;
+  const req=Array.from({length:nRes},(_,j)=>+document.getElementById(`req-r${j}`).value||0);
+  const rr=document.getElementById('req-result');
+
+  for(let j=0;j<nRes;j++){
+    if(req[j]>need[p][j]){
+      rr.innerHTML=`<span style="color:var(--co)">✗ 请求 R${RES_NAMES[j]}=${req[j]} 超过声明的最大需求 Need=${need[p][j]}，拒绝</span>`;
+      return;
+    }
+    if(req[j]>avail[j]){
+      rr.innerHTML=`<span style="color:var(--ca)">⏳ R${RES_NAMES[j]} 可用量不足（可用=${avail[j]}，请求=${req[j]}），P${p+1} 等待</span>`;
+      return;
+    }
+  }
+  // Trial allocation
+  const tAvail=avail.map((v,j)=>v-req[j]);
+  const tAlloc=allocMtx.map((r,i)=>i===p?r.map((v,j)=>v+req[j]):r.slice());
+  const tNeed =need.map((r,i)=>i===p?r.map((v,j)=>v-req[j]):r.slice());
+  const t=computeSafety(tAvail, tAlloc, tNeed, nProc, nRes);
+  if(t.safe){
+    rr.innerHTML=`<span style="color:var(--cg)">✓ 试分配安全（序列：${t.seq.map(i=>'P'+(i+1)).join('→')}），批准 P${p+1} 的请求</span>`;
+  } else {
+    rr.innerHTML=`<span style="color:var(--co)">✗ 试分配后系统不安全，拒绝 P${p+1} 的请求，资源保持不变</span>`;
+  }
+}
+
+// ── Init ───────────────────────────────────────────────────────
+rebuildCfg();
+loadExample();
+</script>
+</body>
+</html>
