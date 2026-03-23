@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>四种调度算法对比</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+  background: linear-gradient(135deg,#f0f4ff,#f8fafc);
+  min-height: 100vh; padding: 28px;
+  display: flex; flex-direction: column; align-items: center; gap: 22px;
+}
+
+.title { text-align: center; }
+.title h1 { font-size: 20px; font-weight: 800; color: #1a2340; }
+.title p  { font-size: 12px; color: #8492a6; margin-top: 4px; }
+
+/* Tabs */
+.tabs {
+  display: flex; gap: 8px; background: #fff;
+  border-radius: 12px; padding: 6px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+}
+.tab {
+  padding: 8px 20px; border-radius: 8px; border: none;
+  cursor: pointer; font-weight: 700; font-size: 14px;
+  background: transparent; color: #6b7280;
+  transition: all .2s;
+}
+.tab.active { background: #6366f1; color: #fff; }
+
+/* Card */
+.card {
+  background: #fff; border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.07);
+  padding: 20px 28px; width: 100%; max-width: 760px; overflow-x: auto;
+}
+.card-title { font-size: 12px; font-weight: 700; color: #6b7280; margin-bottom: 14px; letter-spacing: 1px; }
+
+/* Gantt */
+.gantt-bars  { position: relative; height: 50px; margin-left: 4px; }
+.gantt-ticks { position: relative; height: 22px; margin-left: 4px; margin-top: 3px; }
+.gantt-arrivals { position: relative; height: 22px; margin-left: 4px; margin-top: 2px; }
+.baseline { position: absolute; top: 0; left: 0; height: 1px; background: #e2e8f0; }
+
+.bar {
+  position: absolute; top: 0; height: 46px;
+  border-radius: 8px; border: 2px solid;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 15px;
+  transition: background .15s, transform .15s, box-shadow .15s;
+  cursor: default; overflow: hidden;
+}
+.bar:hover { transform: translateY(-2px); }
+
+.tick { position: absolute; display: flex; flex-direction: column; align-items: center; }
+.tick-line { width: 1px; height: 5px; background: #cbd5e1; }
+.tick-num  { font-size: 13px; color: #64748b; }
+.tick-num.bold { font-weight: 700; }
+
+.arrival { position: absolute; display: flex; flex-direction: column; align-items: center; transform: translateX(-50%); }
+.arrival-line { width: 2px; height: 7px; border-radius: 1px; }
+.arrival-label { font-size: 11px; font-weight: 600; white-space: nowrap; }
+
+/* Table */
+table { width: 100%; border-collapse: collapse; font-size: 16px; }
+thead tr { background: #f8fafc; }
+th {
+  padding: 8px 10px; text-align: center; font-weight: 700;
+  color: #374151; border-bottom: 2px solid #e2e8f0; font-size: 15px; white-space: nowrap;
+}
+td { padding: 8px 10px; text-align: center; }
+tr.even { background: #fff; }
+tr.odd  { background: #fafafa; }
+tfoot tr { border-top: 2px solid #e2e8f0; background: #f8fafc; }
+tfoot td { font-size: 13px; }
+
+.job-badge {
+  font-weight: 800; padding: 2px 10px; border-radius: 20px;
+  border: 1px solid; display: inline-block;
+}
+
+/* Summary table rows clickable */
+.summary-row { cursor: pointer; transition: background .15s; }
+.summary-row.active { background: #eef2ff !important; color: #4f46e5; font-weight: 800; }
+
+/* Legend */
+.legend { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+.legend-item { display: flex; align-items: center; gap: 5px; font-size: 13px; color: #4b5563; }
+.legend-dot { width: 11px; height: 11px; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div class="title">
+  <h1>四种调度算法对比</h1>
+  <h2 style="font-size:15px;font-weight:600;color:#4b5563;margin-top:6px;">Comparison of Four CPU Scheduling Algorithms</h2>
+  <p style="margin-top:6px;">FCFS · SJF · RR(q=1) · HRN &nbsp;|&nbsp; 周转时间 T = 完成 - 到达 &nbsp;|&nbsp; 带权周转时间 W = T / 运行</p>
+</div>
+
+<div class="tabs" id="tabs"></div>
+
+<div class="card" id="gantt-card">
+  <div class="card-title" id="gantt-title"></div>
+  <div class="gantt-bars"    id="gantt-bars"></div>
+  <div class="gantt-ticks"   id="gantt-ticks"></div>
+  <div class="gantt-arrivals" id="gantt-arrivals"></div>
+</div>
+
+<div class="card">
+  <div class="card-title">调度统计</div>
+  <table id="stats-table">
+    <thead><tr>
+      <th>作业</th><th>到达时间</th><th>运行时间</th>
+      <th>完成时间</th><th>周转时间 T</th><th>带权周转时间 W</th>
+    </tr></thead>
+    <tbody id="stats-body"></tbody>
+    <tfoot><tr>
+      <td colspan="4" style="text-align:right;font-weight:700;color:#6b7280;padding:8px 10px;">平均值</td>
+      <td id="avg-ta"  style="font-weight:800;color:#6366f1;text-align:center;padding:8px 10px;"></td>
+      <td id="avg-wta" style="font-weight:800;color:#10b981;text-align:center;padding:8px 10px;"></td>
+    </tr></tfoot>
+  </table>
+</div>
+
+<div class="card">
+  <div class="card-title">算法综合对比</div>
+  <table id="summary-table">
+    <thead><tr>
+      <th>算法</th><th>平均周转时间 T̄</th><th>平均带权周转时间 W̄</th>
+    </tr></thead>
+    <tbody id="summary-body"></tbody>
+  </table>
+</div>
+
+<div class="legend" id="legend"></div>
+
+<script>
+const SCALE = 26, TOTAL = 18;
+
+const COLORS = {
+  A:{ bg:"#6366f1", light:"#eef2ff", border:"#4f46e5" },
+  B:{ bg:"#10b981", light:"#ecfdf5", border:"#059669" },
+  C:{ bg:"#f59e0b", light:"#fffbeb", border:"#d97706" },
+  D:{ bg:"#ef4444", light:"#fef2f2", border:"#dc2626" },
+  E:{ bg:"#8b5cf6", light:"#f5f3ff", border:"#7c3aed" },
+};
+
+const JOBS = [
+  { id:"A", arrive:0, burst:4 },
+  { id:"B", arrive:1, burst:3 },
+  { id:"C", arrive:2, burst:5 },
+  { id:"D", arrive:3, burst:2 },
+  { id:"E", arrive:4, burst:4 },
+];
+
+const ALGOS = [
+  {
+    name:"FCFS", full:"先来先服务",
+    segs:[
+      {id:"A",start:0, end:4 },{id:"B",start:4, end:7 },
+      {id:"C",start:7, end:12},{id:"D",start:12,end:14},{id:"E",start:14,end:18},
+    ],
+    finish:{A:4,B:7,C:12,D:14,E:18},
+  },
+  {
+    name:"SJF", full:"短作业优先（非抢占）",
+    segs:[
+      {id:"A",start:0, end:4 },{id:"D",start:4, end:6 },
+      {id:"B",start:6, end:9 },{id:"E",start:9, end:13},{id:"C",start:13,end:18},
+    ],
+    finish:{A:4,B:9,C:18,D:6,E:13},
+  },
+  {
+    name:"RR", full:"时间片轮转（时间片=1）",
+    segs:[
+      {id:"A",start:0, end:1 },{id:"B",start:1, end:2 },{id:"A",start:2, end:3 },
+      {id:"C",start:3, end:4 },{id:"B",start:4, end:5 },{id:"D",start:5, end:6 },
+      {id:"A",start:6, end:7 },{id:"E",start:7, end:8 },{id:"C",start:8, end:9 },
+      {id:"B",start:9, end:10},{id:"D",start:10,end:11},{id:"A",start:11,end:12},
+      {id:"E",start:12,end:13},{id:"C",start:13,end:14},{id:"E",start:14,end:15},
+      {id:"C",start:15,end:16},{id:"E",start:16,end:17},{id:"C",start:17,end:18},
+    ],
+    finish:{A:12,B:10,C:18,D:11,E:17},
+  },
+  {
+    name:"HRN", full:"响应比高者优先（非抢占）",
+    segs:[
+      {id:"A",start:0, end:4 },{id:"B",start:4, end:7 },
+      {id:"D",start:7, end:9 },{id:"C",start:9, end:14},{id:"E",start:14,end:18},
+    ],
+    finish:{A:4,B:7,C:14,D:9,E:18},
+  },
+];
+
+let currentAlgo = 0;
+let hoveredJob = null;
+
+function computeStats(algo) {
+  return JOBS.map(j => {
+    const ft = algo.finish[j.id];
+    const ta = ft - j.arrive;
+    const wta = ta / j.burst;
+    return { ...j, finish:ft, turnaround:ta, wta };
+  });
+}
+
+// Build tabs
+const tabsEl = document.getElementById("tabs");
+ALGOS.forEach((a, i) => {
+  const btn = document.createElement("button");
+  btn.className = "tab" + (i===0?" active":"");
+  btn.textContent = a.name;
+  btn.onclick = () => switchAlgo(i);
+  tabsEl.appendChild(btn);
+});
+
+// Build summary table
+const summaryBody = document.getElementById("summary-body");
+ALGOS.forEach((a, i) => {
+  const s = computeStats(a);
+  const avgTA  = (s.reduce((x,j)=>x+j.turnaround,0)/s.length).toFixed(2);
+  const avgWTA = (s.reduce((x,j)=>x+j.wta,0)/s.length).toFixed(2);
+  const tr = document.createElement("tr");
+  tr.className = "summary-row" + (i===0?" active":"");
+  tr.innerHTML = `
+    <td style="font-weight:800;padding:8px 12px;">${a.name}</td>
+    <td style="font-weight:700;color:#6366f1;padding:8px 12px;">${avgTA}</td>
+    <td style="font-weight:700;color:#10b981;padding:8px 12px;">${avgWTA}</td>
+  `;
+  tr.onclick = () => switchAlgo(i);
+  summaryBody.appendChild(tr);
+});
+
+// Build legend
+const legendEl = document.getElementById("legend");
+JOBS.forEach(j => {
+  const c = COLORS[j.id];
+  const item = document.createElement("div");
+  item.className = "legend-item";
+  item.innerHTML = `<div class="legend-dot" style="background:${c.bg}"></div><span>${j.id}：到达${j.arrive} · 运行${j.burst}</span>`;
+  legendEl.appendChild(item);
+});
+
+function buildGantt(algo) {
+  const barsEl = document.getElementById("gantt-bars");
+  const ticksEl = document.getElementById("gantt-ticks");
+  const arrivalsEl = document.getElementById("gantt-arrivals");
+  const titleEl = document.getElementById("gantt-title");
+
+  titleEl.textContent = algo.name + " · " + algo.full;
+  barsEl.innerHTML = "";
+  ticksEl.innerHTML = "";
+  arrivalsEl.innerHTML = "";
+
+  const totalW = TOTAL * SCALE;
+  barsEl.style.width = totalW + "px";
+
+  // Bars
+  algo.segs.forEach(seg => {
+    const c = COLORS[seg.id];
+    const w = (seg.end - seg.start) * SCALE;
+    const bar = document.createElement("div");
+    bar.className = "bar";
+    bar.style.cssText = `left:${seg.start*SCALE}px;width:${w}px;background:${c.light};border-color:${c.border};color:${c.border};`;
+    if (w >= 20) bar.textContent = seg.id;
+
+    bar.onmouseenter = () => {
+      hoveredJob = seg.id;
+      refreshHover();
+    };
+    bar.onmouseleave = () => {
+      hoveredJob = null;
+      refreshHover();
+    };
+    barsEl.appendChild(bar);
+  });
+
+  // Ticks
+  const bl = document.createElement("div");
+  bl.className = "baseline";
+  bl.style.width = totalW + "px";
+  ticksEl.appendChild(bl);
+  for (let t = 0; t <= TOTAL; t++) {
+    const d = document.createElement("div");
+    d.className = "tick";
+    d.style.left = (t * SCALE) + "px";
+    d.innerHTML = `<div class="tick-line"></div><span class="tick-num ${t%3===0?'bold':''}">${t}</span>`;
+    ticksEl.appendChild(d);
+  }
+
+  // Arrivals
+  JOBS.forEach(j => {
+    const c = COLORS[j.id];
+    const d = document.createElement("div");
+    d.className = "arrival";
+    d.style.left = (j.arrive * SCALE) + "px";
+    d.innerHTML = `<div class="arrival-line" style="background:${c.border}"></div><span class="arrival-label" style="color:${c.border}">${j.id}</span>`;
+    arrivalsEl.appendChild(d);
+  });
+}
+
+function buildStats(algo) {
+  const stats = computeStats(algo);
+  const tbody = document.getElementById("stats-body");
+  tbody.innerHTML = "";
+
+  stats.forEach((j, i) => {
+    const c = COLORS[j.id];
+    const tr = document.createElement("tr");
+    tr.className = i%2===0?"even":"odd";
+    tr.dataset.job = j.id;
+    tr.innerHTML = `
+      <td><span class="job-badge" style="color:${c.border};background:${c.light};border-color:${c.border}">${j.id}</span></td>
+      <td>${j.arrive}</td>
+      <td>${j.burst}</td>
+      <td>${j.finish}</td>
+      <td style="font-weight:700;color:#6366f1">${j.turnaround}</td>
+      <td style="font-weight:700;color:#10b981">${j.wta.toFixed(2)}</td>
+    `;
+    tr.onmouseenter = () => { hoveredJob = j.id; refreshHover(); };
+    tr.onmouseleave = () => { hoveredJob = null; refreshHover(); };
+    tbody.appendChild(tr);
+  });
+
+  const avgTA  = (stats.reduce((x,j)=>x+j.turnaround,0)/stats.length).toFixed(2);
+  const avgWTA = (stats.reduce((x,j)=>x+j.wta,0)/stats.length).toFixed(2);
+  document.getElementById("avg-ta").textContent  = avgTA;
+  document.getElementById("avg-wta").textContent = avgWTA;
+}
+
+function refreshHover() {
+  const algo = ALGOS[currentAlgo];
+  const barsEl = document.getElementById("gantt-bars");
+  const bars = barsEl.querySelectorAll(".bar");
+  algo.segs.forEach((seg, i) => {
+    const c = COLORS[seg.id];
+    const isHov = hoveredJob === seg.id;
+    bars[i].style.background  = isHov ? c.bg : c.light;
+    bars[i].style.color       = isHov ? "#fff" : c.border;
+    bars[i].style.boxShadow   = isHov ? `0 4px 14px ${c.bg}88` : "none";
+    bars[i].style.transform   = isHov ? "translateY(-2px)" : "none";
+  });
+
+  const tbody = document.getElementById("stats-body");
+  tbody.querySelectorAll("tr").forEach(tr => {
+    const jid = tr.dataset.job;
+    const c = COLORS[jid];
+    const isHov = hoveredJob === jid;
+    tr.style.background = isHov ? c.light : (Array.from(tbody.children).indexOf(tr)%2===0?"#fff":"#fafafa");
+  });
+}
+
+function switchAlgo(i) {
+  currentAlgo = i;
+  hoveredJob = null;
+
+  // Update tabs
+  document.querySelectorAll(".tab").forEach((t,ti) => {
+    t.classList.toggle("active", ti===i);
+  });
+  // Update summary rows
+  document.querySelectorAll(".summary-row").forEach((r,ri) => {
+    r.classList.toggle("active", ri===i);
+  });
+
+  buildGantt(ALGOS[i]);
+  buildStats(ALGOS[i]);
+}
+
+// Init
+switchAlgo(0);
+</script>
+</body>
+</html>
